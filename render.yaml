@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: subscription-tracker
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # One worker on purpose: the per-visitor rate limit is kept in memory.
+    startCommand: gunicorn --chdir src app:app --workers 1 --threads 4 --timeout 60
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: DATABASE_URL
+        sync: false          # paste your Neon connection string in the Render dashboard
+      - key: WRITE_LIMIT_PER_MINUTE
+        value: "60"
+      - key: MAX_SUBSCRIPTIONS
+        value: "200"
