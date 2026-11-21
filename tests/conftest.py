@@ -12,6 +12,18 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from werkzeug.security import generate_password_hash
+
+TEST_USERNAME = "owner"
+TEST_PASSWORD = "correct-horse-battery"
+
+
+@pytest.fixture(autouse=True)
+def login_credentials(monkeypatch):
+    monkeypatch.setenv("APP_USERNAME", TEST_USERNAME)
+    monkeypatch.setenv("APP_PASSWORD_HASH", generate_password_hash(TEST_PASSWORD))
+    yield
+
 
 @pytest.fixture(autouse=True)
 def isolated_storage(monkeypatch):

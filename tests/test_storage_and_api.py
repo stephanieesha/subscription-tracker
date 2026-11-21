@@ -11,7 +11,10 @@ from storage import add_subscription, find_subscription, load_subscriptions, sav
 
 @pytest.fixture
 def client():
-    return app_module.app.test_client()
+    test_client = app_module.app.test_client()
+    with test_client.session_transaction() as session:
+        session["logged_in"] = True  # skip the login form; auth itself is tested in test_auth.py
+    return test_client
 
 
 VALID = {"name": "Netflix", "amount": 15.99, "billing_cycle": "monthly", "next_renewal_date": "2026-11-08", "category": "Video"}

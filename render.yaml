@@ -11,6 +11,12 @@ services:
         value: "3.12.7"
       - key: DATABASE_URL
         sync: false          # paste your Neon connection string in the Render dashboard
+      - key: APP_USERNAME
+        sync: false          # the login name
+      - key: APP_PASSWORD_HASH
+        sync: false          # generate with the command in README.md (Login section)
+      - key: SECRET_KEY
+        sync: false          # any long random string; keep it stable
       - key: WRITE_LIMIT_PER_MINUTE
         value: "60"
       - key: MAX_SUBSCRIPTIONS

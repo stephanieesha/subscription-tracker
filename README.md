@@ -20,14 +20,33 @@ python src/app.py
 ```
 Then open `http://localhost:5030`.
 
+## Login
+
+The tracker has a single owner login. Every page and `/api` route requires it,
+and nobody can log in until both `APP_USERNAME` and `APP_PASSWORD_HASH` are set.
+
+Create the password hash once (the password itself is never stored):
+
+```bash
+python -c "from werkzeug.security import generate_password_hash as h; print(h(input('Password: ')))"
+```
+
+Set these environment variables:
+
+- `APP_USERNAME`: the login name
+- `APP_PASSWORD_HASH`: the hash printed above
+- `SECRET_KEY`: any long random string, kept stable (changing it logs everyone out)
+
+Locally, export them before running `python src/app.py`. On Render they are set
+in the dashboard (`render.yaml` marks them `sync: false`, so they're not in the repo).
+
 ## Running the tests
 
 ```bash
 pytest tests/
 ```
-22 tests, focused heavily on the date/money edge cases: month-end
-rollovers, leap years, year boundaries, and correct exclusion of
-cancelled subscriptions from totals.
+Tests cover the date/money edge cases (month-end rollovers, leap years, year
+boundaries, excluding cancelled subscriptions from totals), the API, and login.
 
 ## What it does
 

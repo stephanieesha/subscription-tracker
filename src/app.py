@@ -13,8 +13,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
+from auth import SESSION_KEY, check_credentials, is_logged_in, new_secret_key
 from limits import client_ip, max_subscriptions, too_many_requests
 from storage import (
     load_subscriptions, save_subscriptions, add_subscription, find_subscription, count_subscriptions,
@@ -23,6 +24,24 @@ from tracker import compute_totals, upcoming_renewals, renew_subscription, cance
 
 ROOT = Path(__file__).parent.parent
 app = Flask(__name__, template_folder=str(ROOT / "templates"))
+app.secret_key = new_secret_key()
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    # Render serves over HTTPS and sets RENDER=true; local http://localhost needs the cookie to work over http.
+    SESSION_COOKIE_SECURE=os.environ.get("RENDER") == "true",
+)
+
+PUBLIC_PATHS = ("/login", "/robots.txt")
+
+
+@app.before_request
+def require_login():
+    if request.path in PUBLIC_PATHS or is_logged_in(session):
+        return None
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Log in to continue"}), 401
+    return redirect(url_for("login"))
 
 
 @app.before_request
@@ -45,6 +64,24 @@ def robots():
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = None
+    if request.method == "POST":
+        if check_credentials(request.form.get("username", ""), request.form.get("password", "")):
+            session.clear()
+            session[SESSION_KEY] = True
+            return redirect(url_for("index"))
+        error = "Wrong username or password"
+    return render_template("login.html", error=error)
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
 
 
 @app.route("/api/subscriptions", methods=["GET"])
