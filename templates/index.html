@@ -67,6 +67,9 @@
         <input type="date" id="nextRenewal" />
         <input type="text" id="category" placeholder="Category (optional)" />
       </div>
+      <div class="form-row">
+        <input type="number" id="remindDays" min="0" max="365" placeholder="Email me this many days before renewal (blank = no reminder)" />
+      </div>
       <button onclick="addSubscription()">Add</button>
     </div>
 
@@ -116,11 +119,12 @@
         <div class="sub-row ${s.status === 'cancelled' ? 'cancelled' : ''}">
           <div>
             <span class="sub-name">${esc(s.name)}</span>
-            <span class="sub-meta"> - $${esc(s.amount)}/${esc(s.billing_cycle)} - next: ${esc(s.next_renewal_date)}</span>
+            <span class="sub-meta"> - $${esc(s.amount)}/${esc(s.billing_cycle)} - next: ${esc(s.next_renewal_date)}${s.remind_days_before != null ? ` - email ${esc(s.remind_days_before)} day(s) before` : ''}</span>
             ${s.status === 'cancelled' ? '<span class="soon-flag">cancelled</span>' : ''}
           </div>
           ${s.status === 'active' ? `
             <div class="actions">
+              <button class="secondary" onclick="setReminder('${s.id}')">Reminder</button>
               <button class="secondary" onclick="renewSub('${s.id}')">Renew</button>
               <button class="danger" onclick="cancelSub('${s.id}')">Cancel</button>
             </div>
@@ -139,6 +143,7 @@
         billing_cycle: document.getElementById('billingCycle').value,
         next_renewal_date: document.getElementById('nextRenewal').value,
         category: document.getElementById('category').value.trim(),
+        remind_days_before: document.getElementById('remindDays').value,
       };
 
       const res = await fetch('/api/subscriptions', {
@@ -157,8 +162,31 @@
       document.getElementById('amount').value = '';
       document.getElementById('nextRenewal').value = '';
       document.getElementById('category').value = '';
+      document.getElementById('remindDays').value = '';
 
       loadDashboard();
+      loadSubscriptions();
+    }
+
+    async function setReminder(id) {
+      const answer = prompt('Email me how many days before renewal? Leave blank for no reminder.');
+      if (answer === null) return;
+
+      const days = answer.trim() === '' ? null : Number(answer);
+      if (days !== null && (!Number.isInteger(days) || days < 0 || days > 365)) {
+        alert('Enter a whole number from 0 to 365, or leave it blank.');
+        return;
+      }
+
+      const res = await fetch(`/api/subscriptions/${id}/reminder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days }),
+      });
+      if (!res.ok) {
+        alert((await res.json()).error);
+        return;
+      }
       loadSubscriptions();
     }
 

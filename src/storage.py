@@ -14,7 +14,10 @@ from pathlib import Path
 
 DATA_PATH = Path(__file__).parent.parent / "data" / "subscriptions.json"
 
-COLUMNS = ("id", "name", "amount", "billing_cycle", "next_renewal_date", "category", "status")
+COLUMNS = (
+    "id", "name", "amount", "billing_cycle", "next_renewal_date", "category", "status",
+    "remind_days_before", "reminded_for_date",
+)
 
 CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS subscriptions (
@@ -25,9 +28,17 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     next_renewal_date TEXT NOT NULL,
     category TEXT NOT NULL DEFAULT 'Other',
     status TEXT NOT NULL DEFAULT 'active',
+    remind_days_before INTEGER,
+    reminded_for_date TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 )
 """
+
+# Tables created before reminders existed need the new columns added in place.
+MIGRATIONS = (
+    "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS remind_days_before INTEGER",
+    "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS reminded_for_date TEXT",
+)
 
 
 def using_database() -> bool:
@@ -40,6 +51,8 @@ def _connect():
 
     conn = psycopg.connect(os.environ["DATABASE_URL"], row_factory=dict_row, prepare_threshold=None)
     conn.execute(CREATE_TABLE)
+    for statement in MIGRATIONS:
+        conn.execute(statement)
     return conn
 
 
@@ -62,14 +75,17 @@ def save_subscriptions(subscriptions: list) -> None:
             for sub in subscriptions:
                 conn.execute(
                     """
-                    INSERT INTO subscriptions (id, name, amount, billing_cycle, next_renewal_date, category, status)
-                    VALUES (%(id)s, %(name)s, %(amount)s, %(billing_cycle)s, %(next_renewal_date)s, %(category)s, %(status)s)
+                    INSERT INTO subscriptions (id, name, amount, billing_cycle, next_renewal_date, category, status,
+                                               remind_days_before, reminded_for_date)
+                    VALUES (%(id)s, %(name)s, %(amount)s, %(billing_cycle)s, %(next_renewal_date)s, %(category)s, %(status)s,
+                            %(remind_days_before)s, %(reminded_for_date)s)
                     ON CONFLICT (id) DO UPDATE SET
                         name = EXCLUDED.name, amount = EXCLUDED.amount, billing_cycle = EXCLUDED.billing_cycle,
                         next_renewal_date = EXCLUDED.next_renewal_date, category = EXCLUDED.category,
-                        status = EXCLUDED.status
+                        status = EXCLUDED.status, remind_days_before = EXCLUDED.remind_days_before,
+                        reminded_for_date = EXCLUDED.reminded_for_date
                     """,
-                    {column: sub[column] for column in COLUMNS},
+                    {column: sub.get(column) for column in COLUMNS},
                 )
         return
 
@@ -86,6 +102,8 @@ def add_subscription(data: dict) -> dict:
         "next_renewal_date": data["next_renewal_date"],
         "category": data.get("category", "Other"),
         "status": "active",
+        "remind_days_before": data.get("remind_days_before"),
+        "reminded_for_date": None,
     }
     if using_database():
         save_subscriptions([new_sub])  # inserts just this row, without touching the others

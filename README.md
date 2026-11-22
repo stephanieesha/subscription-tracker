@@ -40,6 +40,26 @@ Set these environment variables:
 Locally, export them before running `python src/app.py`. On Render they are set
 in the dashboard (`render.yaml` marks them `sync: false`, so they're not in the repo).
 
+## Renewal reminder emails
+
+Each subscription can have a reminder set to a number of days before renewal
+(0 to 365). Leave it blank for none. The reminder is emailed once per renewal,
+and Renew starts a new cycle for the next reminder.
+
+Reminders are sent by `src/reminders.py`, which Render runs once a day as a
+scheduled job (see `render.yaml`). Set these on the reminders job:
+
+- `DATABASE_URL`: the same Neon connection string as the web service. Without it
+  the job can't see your subscriptions, since the web service's local file isn't shared.
+- `GMAIL_ADDRESS`: the Gmail address that sends the emails
+- `GMAIL_APP_PASSWORD`: a Gmail app password. Create one at
+  myaccount.google.com/apppasswords (this needs 2-Step Verification turned on).
+  Don't use your normal Gmail password.
+- `REMINDER_TO` (optional): where reminders go. Defaults to `GMAIL_ADDRESS`.
+
+To test locally without sending mail, call `run_reminders(send=print)` from `src/reminders.py`
+or run the tests.
+
 ## Running the tests
 
 ```bash

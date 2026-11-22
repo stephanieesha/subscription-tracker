@@ -33,6 +33,20 @@ app.config.update(
 )
 
 PUBLIC_PATHS = ("/login", "/robots.txt")
+MAX_REMINDER_DAYS = 365
+
+
+def parse_reminder_days(raw):
+    """None or blank means no reminder. Otherwise a whole number of days from 0 to MAX_REMINDER_DAYS."""
+    if raw is None or raw == "":
+        return None
+    try:
+        days = int(raw)
+    except (ValueError, TypeError):
+        raise ValueError("remind_days_before must be a whole number of days")
+    if days < 0 or days > MAX_REMINDER_DAYS:
+        raise ValueError(f"remind_days_before must be between 0 and {MAX_REMINDER_DAYS}")
+    return days
 
 
 @app.before_request
@@ -116,6 +130,11 @@ def create_subscription():
     if len(str(data["name"])) > 100 or len(str(data.get("category", ""))) > 100:
         return jsonify({"error": "name and category must be 100 characters or fewer"}), 400
 
+    try:
+        data["remind_days_before"] = parse_reminder_days(data.get("remind_days_before"))
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
     if max_subscriptions() and count_subscriptions() >= max_subscriptions():
         return jsonify({"error": f"The shared list is full ({max_subscriptions()} subscriptions) - cancel or ask the owner to clear it"}), 400
 
@@ -143,6 +162,24 @@ def renew(sub_id):
         return jsonify({"error": "Subscription not found"}), 404
 
     renew_subscription(sub)
+    save_subscriptions(subscriptions)
+    return jsonify(sub)
+
+
+@app.route("/api/subscriptions/<sub_id>/reminder", methods=["POST"])
+def set_reminder(sub_id):
+    subscriptions = load_subscriptions()
+    sub = find_subscription(subscriptions, sub_id)
+    if sub is None:
+        return jsonify({"error": "Subscription not found"}), 404
+
+    try:
+        days = parse_reminder_days((request.get_json() or {}).get("days"))
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
+    sub["remind_days_before"] = days
+    sub["reminded_for_date"] = None  # a changed reminder may need to fire again for this renewal
     save_subscriptions(subscriptions)
     return jsonify(sub)
 

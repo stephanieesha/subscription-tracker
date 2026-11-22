@@ -21,3 +21,24 @@ services:
         value: "60"
       - key: MAX_SUBSCRIPTIONS
         value: "200"
+
+  # Sends renewal reminder emails once a day. Needs DATABASE_URL: the web service's local
+  # JSON file isn't visible to this job. "0 13 * * *" is 13:00 UTC (9am in Lagos, 8am Eastern).
+  - type: cron
+    name: subscription-reminders
+    runtime: python
+    plan: starter
+    schedule: "0 13 * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python src/reminders.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: DATABASE_URL
+        sync: false          # same Neon connection string as the web service
+      - key: GMAIL_ADDRESS
+        sync: false          # the Gmail address that sends the reminders
+      - key: GMAIL_APP_PASSWORD
+        sync: false          # a Gmail app password, not your normal password
+      - key: REMINDER_TO
+        sync: false          # optional: where reminders go; defaults to GMAIL_ADDRESS
