@@ -5,8 +5,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from tracker import (
-    add_months, add_cycle, normalize_to_monthly, normalize_to_yearly,
+    add_months, add_cycle, add_cycles, normalize_to_monthly, normalize_to_yearly,
     compute_totals, upcoming_renewals, renew_subscription, cancel_subscription,
+    roll_forward, roll_forward_all,
 )
 
 
@@ -150,3 +151,49 @@ def test_cancel_subscription_sets_status_and_date():
     cancel_subscription(sub)
     assert sub["status"] == "cancelled"
     assert "cancelled_date" in sub
+
+
+# ---------- rolling passed renewals forward ----------
+
+def test_add_cycles_steps_from_the_original_date():
+    assert add_cycles(date(2026, 1, 31), "monthly", 2) == date(2026, 3, 31)
+
+
+def test_roll_forward_moves_a_passed_renewal_into_the_future():
+    sub = {"next_renewal_date": "2026-11-08", "billing_cycle": "monthly", "status": "active"}
+    assert roll_forward(sub, date(2026, 11, 22)) is True
+    assert sub["next_renewal_date"] == "2026-12-08"
+
+
+def test_roll_forward_skips_several_missed_weekly_cycles_at_once():
+    sub = {"next_renewal_date": "2026-01-01", "billing_cycle": "weekly", "status": "active"}
+    roll_forward(sub, date(2026, 2, 1))
+    assert sub["next_renewal_date"] == "2026-02-05"
+
+
+def test_roll_forward_keeps_the_billing_day_across_a_short_month():
+    sub = {"next_renewal_date": "2026-01-31", "billing_cycle": "monthly", "status": "active"}
+    roll_forward(sub, date(2026, 3, 10))
+    assert sub["next_renewal_date"] == "2026-03-31"
+
+
+def test_roll_forward_leaves_a_renewal_due_today_alone():
+    sub = {"next_renewal_date": "2026-11-22", "billing_cycle": "monthly", "status": "active"}
+    assert roll_forward(sub, date(2026, 11, 22)) is False
+    assert sub["next_renewal_date"] == "2026-11-22"
+
+
+def test_roll_forward_ignores_cancelled_subscriptions():
+    sub = {"next_renewal_date": "2026-01-01", "billing_cycle": "monthly", "status": "cancelled"}
+    assert roll_forward(sub, date(2026, 11, 22)) is False
+    assert sub["next_renewal_date"] == "2026-01-01"
+
+
+def test_roll_forward_all_reports_whether_anything_changed():
+    subs = [
+        {"next_renewal_date": "2026-11-08", "billing_cycle": "monthly", "status": "active"},
+        {"next_renewal_date": "2026-12-20", "billing_cycle": "yearly", "status": "active"},
+    ]
+    assert roll_forward_all(subs, date(2026, 11, 22)) is True
+    assert [s["next_renewal_date"] for s in subs] == ["2026-12-08", "2026-12-20"]
+    assert roll_forward_all(subs, date(2026, 11, 22)) is False

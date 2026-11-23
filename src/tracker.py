@@ -24,14 +24,20 @@ def add_months(d: date, months: int) -> date:
     return date(year, month, day)
 
 
-def add_cycle(d: date, cycle: str) -> date:
+def add_cycles(d: date, cycle: str, count: int) -> date:
+    """Steps a date forward by `count` billing cycles from the date given, not one cycle at a time, so a
+    monthly renewal on the 31st stays on the 31st in months that have one."""
     if cycle == "weekly":
-        return d + timedelta(days=7)
+        return d + timedelta(days=7 * count)
     if cycle == "monthly":
-        return add_months(d, 1)
+        return add_months(d, count)
     if cycle == "yearly":
-        return add_months(d, 12)
+        return add_months(d, 12 * count)
     raise ValueError(f"Unknown billing cycle: {cycle}")
+
+
+def add_cycle(d: date, cycle: str) -> date:
+    return add_cycles(d, cycle, 1)
 
 
 def normalize_to_monthly(amount: float, cycle: str) -> float:
@@ -88,6 +94,29 @@ def renew_subscription(sub: dict) -> dict:
     current = date.fromisoformat(sub["next_renewal_date"])
     sub["next_renewal_date"] = add_cycle(current, sub["billing_cycle"]).isoformat()
     return sub
+
+
+def roll_forward(sub: dict, today: date) -> bool:
+    """Moves an active subscription's renewal date forward by whole billing cycles until it is today or later,
+    so a renewal that passed without being marked as renewed counts as having happened. Returns True if the
+    date changed."""
+    if sub["status"] != "active":
+        return False
+    current = date.fromisoformat(sub["next_renewal_date"])
+    if current >= today:
+        return False
+    steps = 1
+    while add_cycles(current, sub["billing_cycle"], steps) < today:
+        steps += 1
+    sub["next_renewal_date"] = add_cycles(current, sub["billing_cycle"], steps).isoformat()
+    return True
+
+
+def roll_forward_all(subscriptions: list, today: date = None) -> bool:
+    """Rolls every subscription forward. Returns True if any renewal date changed."""
+    today = today or date.today()
+    changes = [roll_forward(sub, today) for sub in subscriptions]
+    return any(changes)
 
 
 def cancel_subscription(sub: dict) -> dict:

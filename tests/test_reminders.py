@@ -67,6 +67,16 @@ def test_run_reminders_emails_once_and_records_it():
     assert load_subscriptions()[0]["reminded_for_date"] == "2026-12-01"
 
 
+def test_run_reminders_moves_a_passed_renewal_forward_before_reminding():
+    add_subscription({**BASE, "next_renewal_date": "2026-11-01", "remind_days_before": 30})
+    sent = []
+
+    assert run_reminders(today=date(2026, 11, 22), send=lambda subject, body: sent.append(subject)) == 1
+    saved = load_subscriptions()[0]
+    assert saved["next_renewal_date"] == "2026-12-01"
+    assert saved["reminded_for_date"] == "2026-12-01"
+
+
 @pytest.fixture
 def client():
     test_client = app_module.app.test_client()

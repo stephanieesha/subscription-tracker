@@ -1,4 +1,5 @@
 import sys
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,7 @@ def client():
     return test_client
 
 
-VALID = {"name": "Netflix", "amount": 15.99, "billing_cycle": "monthly", "next_renewal_date": "2026-11-08", "category": "Video"}
+VALID = {"name": "Netflix", "amount": 15.99, "billing_cycle": "monthly", "next_renewal_date": "2099-11-08", "category": "Video"}
 
 
 def test_added_subscription_is_saved_and_reloaded():
@@ -54,7 +55,7 @@ def test_api_creates_lists_renews_and_cancels(client):
     assert [s["id"] for s in client.get("/api/subscriptions").get_json()] == [sub_id]
 
     renewed = client.post(f"/api/subscriptions/{sub_id}/renew").get_json()
-    assert renewed["next_renewal_date"] == "2026-12-08"
+    assert renewed["next_renewal_date"] == "2099-12-08"
 
     cancelled = client.post(f"/api/subscriptions/{sub_id}/cancel").get_json()
     assert cancelled["status"] == "cancelled"
@@ -110,3 +111,16 @@ def test_writes_can_be_rate_limited_but_reads_are_not(client, monkeypatch):
 def test_not_indexed_by_search_engines(client):
     assert "noindex" in client.get("/").headers["X-Robots-Tag"]
     assert "Disallow: /" in client.get("/robots.txt").get_data(as_text=True)
+
+
+def test_api_lists_a_passed_renewal_moved_into_the_future(client):
+    client.post("/api/subscriptions", json={**VALID, "next_renewal_date": "2020-01-15"})
+    listed = client.get("/api/subscriptions").get_json()[0]
+    assert date.fromisoformat(listed["next_renewal_date"]) >= date.today()
+    assert listed["next_renewal_date"].endswith("-15")
+
+
+def test_api_renewing_a_passed_renewal_lands_in_the_future(client):
+    sub_id = client.post("/api/subscriptions", json={**VALID, "next_renewal_date": "2020-01-15"}).get_json()["id"]
+    renewed = client.post(f"/api/subscriptions/{sub_id}/renew").get_json()
+    assert date.fromisoformat(renewed["next_renewal_date"]) > date.today()

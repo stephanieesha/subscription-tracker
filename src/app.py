@@ -20,7 +20,7 @@ from limits import client_ip, max_subscriptions, too_many_requests
 from storage import (
     load_subscriptions, save_subscriptions, add_subscription, find_subscription, count_subscriptions,
 )
-from tracker import compute_totals, upcoming_renewals, renew_subscription, cancel_subscription
+from tracker import compute_totals, upcoming_renewals, renew_subscription, cancel_subscription, roll_forward_all
 
 ROOT = Path(__file__).parent.parent
 app = Flask(__name__, template_folder=str(ROOT / "templates"))
@@ -98,9 +98,17 @@ def logout():
     return redirect(url_for("login"))
 
 
+def load_current_subscriptions() -> list:
+    """Loads subscriptions with any renewal date that has already passed moved forward. Nothing is saved
+    here: the routes that change a subscription save it, and the reminder job saves the moved dates."""
+    subscriptions = load_subscriptions()
+    roll_forward_all(subscriptions)
+    return subscriptions
+
+
 @app.route("/api/subscriptions", methods=["GET"])
 def list_subscriptions():
-    return jsonify(load_subscriptions())
+    return jsonify(load_current_subscriptions())
 
 
 @app.route("/api/subscriptions", methods=["POST"])
@@ -144,7 +152,7 @@ def create_subscription():
 
 @app.route("/api/subscriptions/<sub_id>/cancel", methods=["POST"])
 def cancel(sub_id):
-    subscriptions = load_subscriptions()
+    subscriptions = load_current_subscriptions()
     sub = find_subscription(subscriptions, sub_id)
     if sub is None:
         return jsonify({"error": "Subscription not found"}), 404
@@ -156,7 +164,7 @@ def cancel(sub_id):
 
 @app.route("/api/subscriptions/<sub_id>/renew", methods=["POST"])
 def renew(sub_id):
-    subscriptions = load_subscriptions()
+    subscriptions = load_current_subscriptions()
     sub = find_subscription(subscriptions, sub_id)
     if sub is None:
         return jsonify({"error": "Subscription not found"}), 404
@@ -168,7 +176,7 @@ def renew(sub_id):
 
 @app.route("/api/subscriptions/<sub_id>/reminder", methods=["POST"])
 def set_reminder(sub_id):
-    subscriptions = load_subscriptions()
+    subscriptions = load_current_subscriptions()
     sub = find_subscription(subscriptions, sub_id)
     if sub is None:
         return jsonify({"error": "Subscription not found"}), 404
@@ -186,7 +194,7 @@ def set_reminder(sub_id):
 
 @app.route("/api/dashboard")
 def dashboard():
-    subscriptions = load_subscriptions()
+    subscriptions = load_current_subscriptions()
     return jsonify({
         "totals": compute_totals(subscriptions),
         "upcoming": upcoming_renewals(subscriptions, within_days=7),

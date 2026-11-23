@@ -4,7 +4,7 @@ Renewal reminder emails.
 Each subscription can have remind_days_before set (for example 1, 7 or 30). A reminder is due on
 every day from that many days before the renewal date up to and including the renewal date, but
 only once per renewal: reminded_for_date records which renewal date was already emailed, and a new
-renewal date (after Renew) re-arms the reminder.
+renewal date (after Renew, or once a passed renewal rolls forward) re-arms the reminder.
 
 Run once a day with:  python src/reminders.py
 (Render runs this as a scheduled job; see render.yaml.)
@@ -23,6 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from storage import load_subscriptions, save_subscriptions
+from tracker import roll_forward_all
 
 
 def reminders_due(subscriptions: list, today: date = None) -> list:
@@ -56,6 +57,8 @@ def send_email(subject: str, body: str) -> None:
 
 def run_reminders(today: date = None, send=send_email) -> int:
     subscriptions = load_subscriptions()
+    if roll_forward_all(subscriptions, today):
+        save_subscriptions(subscriptions)  # store renewal dates that have moved forward
     sent = 0
     for sub in reminders_due(subscriptions, today):
         send(
