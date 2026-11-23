@@ -69,6 +69,7 @@
       </div>
       <div class="form-row">
         <input type="number" id="remindDays" min="0" max="365" placeholder="Email me this many days before renewal (blank = no reminder)" />
+        <input type="number" id="remindRepeat" min="1" max="365" placeholder="Then repeat every this many days (blank = send once)" />
       </div>
       <button onclick="addSubscription()">Add</button>
     </div>
@@ -119,7 +120,7 @@
         <div class="sub-row ${s.status === 'cancelled' ? 'cancelled' : ''}">
           <div>
             <span class="sub-name">${esc(s.name)}</span>
-            <span class="sub-meta"> - $${esc(s.amount)}/${esc(s.billing_cycle)} - next: ${esc(s.next_renewal_date)}${s.remind_days_before != null ? ` - email ${esc(s.remind_days_before)} day(s) before` : ''}</span>
+            <span class="sub-meta"> - $${esc(s.amount)}/${esc(s.billing_cycle)} - next: ${esc(s.next_renewal_date)}${s.remind_days_before != null ? ` - email ${esc(s.remind_days_before)} day(s) before${s.remind_repeat_days ? `, then every ${esc(s.remind_repeat_days)} day(s)` : ''}` : ''}</span>
             ${s.status === 'cancelled' ? '<span class="soon-flag">cancelled</span>' : ''}
           </div>
           ${s.status === 'active' ? `
@@ -144,6 +145,7 @@
         next_renewal_date: document.getElementById('nextRenewal').value,
         category: document.getElementById('category').value.trim(),
         remind_days_before: document.getElementById('remindDays').value,
+        remind_repeat_days: document.getElementById('remindRepeat').value,
       };
 
       const res = await fetch('/api/subscriptions', {
@@ -163,6 +165,7 @@
       document.getElementById('nextRenewal').value = '';
       document.getElementById('category').value = '';
       document.getElementById('remindDays').value = '';
+      document.getElementById('remindRepeat').value = '';
 
       loadDashboard();
       loadSubscriptions();
@@ -178,10 +181,21 @@
         return;
       }
 
+      let repeat = null;
+      if (days !== null) {
+        const repeatAnswer = prompt('Repeat every how many days until renewal? Leave blank to send once.');
+        if (repeatAnswer === null) return;
+        repeat = repeatAnswer.trim() === '' ? null : Number(repeatAnswer);
+        if (repeat !== null && (!Number.isInteger(repeat) || repeat < 1 || repeat > 365)) {
+          alert('Enter a whole number from 1 to 365, or leave it blank.');
+          return;
+        }
+      }
+
       const res = await fetch(`/api/subscriptions/${id}/reminder`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ days }),
+        body: JSON.stringify({ days, repeat_days: repeat }),
       });
       if (!res.ok) {
         alert((await res.json()).error);

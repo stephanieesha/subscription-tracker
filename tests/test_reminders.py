@@ -109,3 +109,78 @@ def test_api_can_change_a_reminder_later(client):
 
     cleared = client.post(f"/api/subscriptions/{sub_id}/reminder", json={"days": None}).get_json()
     assert cleared["remind_days_before"] is None
+
+
+def test_repeat_sends_again_after_the_interval():
+    repeating = sub(remind_days_before=7, remind_repeat_days=2, reminded_for_date="2026-12-01", last_reminder_on="2026-11-24")
+    assert reminders_due([repeating], today=date(2026, 11, 25)) == []
+    assert reminders_due([repeating], today=date(2026, 11, 26)) != []
+
+
+def test_repeat_stops_once_the_renewal_has_passed():
+    repeating = sub(remind_days_before=7, remind_repeat_days=2, reminded_for_date="2026-12-01", last_reminder_on="2026-11-30")
+    assert reminders_due([repeating], today=date(2026, 12, 2)) == []
+
+
+def test_no_repeat_when_no_interval_is_set():
+    once = sub(remind_days_before=7, reminded_for_date="2026-12-01", last_reminder_on="2026-11-24")
+    assert reminders_due([once], today=date(2026, 11, 30)) == []
+
+
+def test_repeat_still_waits_for_the_first_reminder():
+    assert reminders_due([sub(remind_days_before=7, remind_repeat_days=2)], today=date(2026, 11, 24)) != []
+
+
+def test_run_reminders_repeats_until_renewal():
+    add_subscription({**BASE, "remind_days_before": 7, "remind_repeat_days": 2})
+    sent = []
+    fake_send = lambda subject, body: sent.append(subject)
+
+    assert run_reminders(today=date(2026, 11, 24), send=fake_send) == 1  # first email
+    assert run_reminders(today=date(2026, 11, 25), send=fake_send) == 0  # too soon
+    assert run_reminders(today=date(2026, 11, 26), send=fake_send) == 1  # repeat
+    assert len(sent) == 2
+    assert load_subscriptions()[0]["last_reminder_on"] == "2026-11-26"
+
+
+def test_api_saves_a_repeat_interval(client):
+    response = client.post("/api/subscriptions", json={**BASE, "remind_days_before": "7", "remind_repeat_days": "2"})
+    assert response.status_code == 201
+    assert response.get_json()["remind_repeat_days"] == 2
+
+
+def test_api_repeat_needs_a_first_reminder(client):
+    response = client.post("/api/subscriptions", json={**BASE, "remind_repeat_days": "2"})
+    assert response.status_code == 400
+    assert "Set a reminder before" in response.get_json()["error"]
+
+
+@pytest.mark.parametrize("value", ["-1", "366", "soon"])
+def test_api_rejects_bad_repeat_days(client, value):
+    response = client.post("/api/subscriptions", json={**BASE, "remind_days_before": "7", "remind_repeat_days": value})
+    assert response.status_code == 400
+
+
+def test_api_blank_or_zero_repeat_means_none(client):
+    for value in ("", "0"):
+        response = client.post("/api/subscriptions", json={**BASE, "remind_days_before": "7", "remind_repeat_days": value})
+        assert response.get_json()["remind_repeat_days"] is None
+
+
+def test_api_changing_the_reminder_keeps_the_repeat(client):
+    sub_id = client.post("/api/subscriptions", json={**BASE, "remind_days_before": "7", "remind_repeat_days": "2"}).get_json()["id"]
+    changed = client.post(f"/api/subscriptions/{sub_id}/reminder", json={"days": 14}).get_json()
+    assert changed["remind_days_before"] == 14
+    assert changed["remind_repeat_days"] == 2
+
+
+def test_api_sets_a_repeat_on_an_existing_reminder(client):
+    sub_id = client.post("/api/subscriptions", json={**BASE, "remind_days_before": "7"}).get_json()["id"]
+    changed = client.post(f"/api/subscriptions/{sub_id}/reminder", json={"days": 7, "repeat_days": 3}).get_json()
+    assert changed["remind_repeat_days"] == 3
+
+
+def test_api_clearing_the_reminder_clears_the_repeat(client):
+    sub_id = client.post("/api/subscriptions", json={**BASE, "remind_days_before": "7", "remind_repeat_days": "2"}).get_json()["id"]
+    cleared = client.post(f"/api/subscriptions/{sub_id}/reminder", json={"days": None}).get_json()
+    assert cleared["remind_repeat_days"] is None

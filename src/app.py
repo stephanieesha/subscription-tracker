@@ -49,6 +49,19 @@ def parse_reminder_days(raw):
     return days
 
 
+def parse_repeat_days(raw):
+    """None, blank or 0 means no repeat. Otherwise a whole number of days from 1 to MAX_REMINDER_DAYS."""
+    if raw is None or raw == "":
+        return None
+    try:
+        days = int(raw)
+    except (ValueError, TypeError):
+        raise ValueError("remind_repeat_days must be a whole number of days")
+    if days < 0 or days > MAX_REMINDER_DAYS:
+        raise ValueError(f"remind_repeat_days must be between 0 and {MAX_REMINDER_DAYS}")
+    return days or None
+
+
 @app.before_request
 def require_login():
     if request.path in PUBLIC_PATHS or is_logged_in(session):
@@ -140,8 +153,11 @@ def create_subscription():
 
     try:
         data["remind_days_before"] = parse_reminder_days(data.get("remind_days_before"))
+        data["remind_repeat_days"] = parse_repeat_days(data.get("remind_repeat_days"))
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
+    if data["remind_repeat_days"] and data["remind_days_before"] is None:
+        return jsonify({"error": "Set a reminder before choosing a repeat"}), 400
 
     if max_subscriptions() and count_subscriptions() >= max_subscriptions():
         return jsonify({"error": f"The shared list is full ({max_subscriptions()} subscriptions) - cancel or ask the owner to clear it"}), 400
@@ -181,13 +197,20 @@ def set_reminder(sub_id):
     if sub is None:
         return jsonify({"error": "Subscription not found"}), 404
 
+    body = request.get_json() or {}
     try:
-        days = parse_reminder_days((request.get_json() or {}).get("days"))
+        days = parse_reminder_days(body.get("days"))
+        # Keep the current repeat unless the request sends one.
+        repeat = parse_repeat_days(body["repeat_days"]) if "repeat_days" in body else sub.get("remind_repeat_days")
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
 
+    days_changed = days != sub.get("remind_days_before")
     sub["remind_days_before"] = days
-    sub["reminded_for_date"] = None  # a changed reminder may need to fire again for this renewal
+    sub["remind_repeat_days"] = repeat if days is not None else None  # a repeat needs a first reminder
+    if days_changed:
+        sub["reminded_for_date"] = None  # a changed reminder may need to fire again for this renewal
+        sub["last_reminder_on"] = None
     save_subscriptions(subscriptions)
     return jsonify(sub)
 

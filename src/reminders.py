@@ -6,6 +6,10 @@ every day from that many days before the renewal date up to and including the re
 only once per renewal: reminded_for_date records which renewal date was already emailed, and a new
 renewal date (after Renew, or once a passed renewal rolls forward) re-arms the reminder.
 
+If remind_repeat_days is also set (for example 2), the first email still goes out at that point, then
+another goes out every that many days until the renewal date. last_reminder_on records the day of the
+most recent email for this renewal.
+
 Run once a day with:  python src/reminders.py
 (Render runs this as a scheduled job; see render.yaml.)
 
@@ -35,9 +39,22 @@ def reminders_due(subscriptions: list, today: date = None) -> list:
             continue
         renewal = date.fromisoformat(sub["next_renewal_date"])
         in_window = renewal - timedelta(days=days) <= today <= renewal
-        if in_window and sub.get("reminded_for_date") != sub["next_renewal_date"]:
+        if not in_window:
+            continue
+        if sub.get("reminded_for_date") != sub["next_renewal_date"]:
+            due.append(sub)  # the first email for this renewal
+        elif repeat_due(sub, today):
             due.append(sub)
     return due
+
+
+def repeat_due(sub: dict, today: date) -> bool:
+    """True when a repeating reminder is due again: the repeat interval has passed since the last email."""
+    repeat = sub.get("remind_repeat_days")
+    last = sub.get("last_reminder_on")
+    if not repeat or not last:
+        return False
+    return (today - date.fromisoformat(last)).days >= repeat
 
 
 def send_email(subject: str, body: str) -> None:
@@ -56,6 +73,7 @@ def send_email(subject: str, body: str) -> None:
 
 
 def run_reminders(today: date = None, send=send_email) -> int:
+    today = today or date.today()
     subscriptions = load_subscriptions()
     if roll_forward_all(subscriptions, today):
         save_subscriptions(subscriptions)  # store renewal dates that have moved forward
@@ -66,6 +84,7 @@ def run_reminders(today: date = None, send=send_email) -> int:
             f"{sub['name']} ({sub['billing_cycle']}, ${sub['amount']:.2f}) renews on {sub['next_renewal_date']}.",
         )
         sub["reminded_for_date"] = sub["next_renewal_date"]
+        sub["last_reminder_on"] = today.isoformat()
         # Save after each email, so a failure later in the run can't cause duplicate emails.
         save_subscriptions(subscriptions)
         sent += 1
