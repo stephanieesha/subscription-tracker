@@ -71,6 +71,10 @@
         <input type="number" id="remindDays" min="0" max="365" placeholder="Email me this many days before renewal (blank = no reminder)" />
         <input type="number" id="remindRepeat" min="1" max="365" placeholder="Then repeat every this many days (blank = send once)" />
       </div>
+      <div class="form-row">
+        <input type="number" id="sendHour" min="0" max="23" value="9" placeholder="Send hour (0 to 23)" />
+        <input type="text" id="timeZone" placeholder="Time zone (e.g. Africa/Lagos)" />
+      </div>
       <button onclick="addSubscription()">Add</button>
     </div>
 
@@ -120,7 +124,7 @@
         <div class="sub-row ${s.status === 'cancelled' ? 'cancelled' : ''}">
           <div>
             <span class="sub-name">${esc(s.name)}</span>
-            <span class="sub-meta"> - $${esc(s.amount)}/${esc(s.billing_cycle)} - next: ${esc(s.next_renewal_date)}${s.remind_days_before != null ? ` - email ${esc(s.remind_days_before)} day(s) before${s.remind_repeat_days ? `, then every ${esc(s.remind_repeat_days)} day(s)` : ''}` : ''}</span>
+            <span class="sub-meta"> - $${esc(s.amount)}/${esc(s.billing_cycle)} - next: ${esc(s.next_renewal_date)}${s.remind_days_before != null ? ` - email ${esc(s.remind_days_before)} day(s) before${s.remind_repeat_days ? `, then every ${esc(s.remind_repeat_days)} day(s)` : ''}, at ${String(s.send_hour ?? 13).padStart(2, '0')}:00 ${esc(s.time_zone || 'UTC')}` : ''}</span>
             ${s.status === 'cancelled' ? '<span class="soon-flag">cancelled</span>' : ''}
           </div>
           ${s.status === 'active' ? `
@@ -146,6 +150,8 @@
         category: document.getElementById('category').value.trim(),
         remind_days_before: document.getElementById('remindDays').value,
         remind_repeat_days: document.getElementById('remindRepeat').value,
+        send_hour: document.getElementById('sendHour').value,
+        time_zone: document.getElementById('timeZone').value.trim(),
       };
 
       const res = await fetch('/api/subscriptions', {
@@ -172,6 +178,9 @@
     }
 
     async function setReminder(id) {
+      const subs = await (await fetch('/api/subscriptions')).json();
+      const current = (Array.isArray(subs) ? subs : []).find((s) => s.id === id) || {};
+
       const answer = prompt('Email me how many days before renewal? Leave blank for no reminder.');
       if (answer === null) return;
 
@@ -181,21 +190,36 @@
         return;
       }
 
-      let repeat = null;
+      const body = { days, repeat_days: null };
       if (days !== null) {
         const repeatAnswer = prompt('Repeat every how many days until renewal? Leave blank to send once.');
         if (repeatAnswer === null) return;
-        repeat = repeatAnswer.trim() === '' ? null : Number(repeatAnswer);
-        if (repeat !== null && (!Number.isInteger(repeat) || repeat < 1 || repeat > 365)) {
+        body.repeat_days = repeatAnswer.trim() === '' ? null : Number(repeatAnswer);
+        if (body.repeat_days !== null && (!Number.isInteger(body.repeat_days) || body.repeat_days < 1 || body.repeat_days > 365)) {
           alert('Enter a whole number from 1 to 365, or leave it blank.');
           return;
         }
+
+        const hourAnswer = prompt('Send the email at which hour, from 0 to 23 (your time)?', current.send_hour ?? 13);
+        if (hourAnswer === null) return;
+        if (hourAnswer.trim() !== '') {
+          const hour = Number(hourAnswer);
+          if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
+            alert('Enter a whole hour from 0 to 23, or leave it blank to keep the current hour.');
+            return;
+          }
+          body.send_hour = hour;
+        }
+
+        const zoneAnswer = prompt('Time zone for that hour, such as Africa/Lagos or America/New_York?', current.time_zone || 'UTC');
+        if (zoneAnswer === null) return;
+        if (zoneAnswer.trim() !== '') body.time_zone = zoneAnswer.trim();
       }
 
       const res = await fetch(`/api/subscriptions/${id}/reminder`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ days, repeat_days: repeat }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         alert((await res.json()).error);
@@ -216,6 +240,7 @@
       loadSubscriptions();
     }
 
+    document.getElementById('timeZone').value = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     loadDashboard();
     loadSubscriptions();
   </script>

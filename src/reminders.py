@@ -10,7 +10,11 @@ If remind_repeat_days is also set (for example 2), the first email still goes ou
 another goes out every that many days until the renewal date. last_reminder_on records the day of the
 most recent email for this renewal.
 
-Run once a day with:  python src/reminders.py
+Each subscription also has send_hour (0 to 23) and time_zone (an IANA name such as Africa/Lagos). Its
+emails go out on the first run at or after that hour on the subscription's own local date. Subscriptions
+saved before these fields existed keep the old send time, 13:00 UTC.
+
+Run every hour with:  python src/reminders.py
 (Render runs this as a scheduled job; see render.yaml.)
 
 Sending uses Gmail over SMTP. Needs GMAIL_ADDRESS and GMAIL_APP_PASSWORD, and optionally
@@ -20,27 +24,48 @@ REMINDER_TO (defaults to GMAIL_ADDRESS).
 import os
 import smtplib
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 from storage import load_subscriptions, save_subscriptions
-from tracker import roll_forward_all
+from tracker import roll_forward
+
+LEGACY_SEND_HOUR = 13
+LEGACY_TIME_ZONE = "UTC"
 
 
-def reminders_due(subscriptions: list, today: date = None) -> list:
-    today = today or date.today()
+def send_settings(sub: dict) -> tuple:
+    """The hour and time zone a subscription's emails go out in. Older subscriptions use 13:00 UTC."""
+    hour = sub.get("send_hour")
+    return (LEGACY_SEND_HOUR if hour is None else hour, sub.get("time_zone") or LEGACY_TIME_ZONE)
+
+
+def local_now(sub: dict, now: datetime) -> datetime:
+    """The moment `now` as seen in the subscription's time zone."""
+    _, zone = send_settings(sub)
+    return now.astimezone(ZoneInfo(zone))
+
+
+def reminders_due(subscriptions: list, now: datetime = None) -> list:
+    now = now or datetime.now(timezone.utc)
     due = []
     for sub in subscriptions:
         days = sub.get("remind_days_before")
         if sub["status"] != "active" or days is None:
             continue
+        local = local_now(sub, now)
+        today = local.date()
         renewal = date.fromisoformat(sub["next_renewal_date"])
         in_window = renewal - timedelta(days=days) <= today <= renewal
         if not in_window:
             continue
+        send_hour, _ = send_settings(sub)
+        if local.hour < send_hour:
+            continue  # today's email goes out once the send hour arrives
         if sub.get("reminded_for_date") != sub["next_renewal_date"]:
             due.append(sub)  # the first email for this renewal
         elif repeat_due(sub, today):
@@ -72,19 +97,21 @@ def send_email(subject: str, body: str) -> None:
         smtp.send_message(message)
 
 
-def run_reminders(today: date = None, send=send_email) -> int:
-    today = today or date.today()
+def run_reminders(now: datetime = None, send=send_email) -> int:
+    now = now or datetime.now(timezone.utc)
     subscriptions = load_subscriptions()
-    if roll_forward_all(subscriptions, today):
+    # Each renewal date is judged by the date in its own subscription's time zone.
+    changes = [roll_forward(sub, local_now(sub, now).date()) for sub in subscriptions]
+    if any(changes):
         save_subscriptions(subscriptions)  # store renewal dates that have moved forward
     sent = 0
-    for sub in reminders_due(subscriptions, today):
+    for sub in reminders_due(subscriptions, now):
         send(
             f"Reminder: {sub['name']} renews on {sub['next_renewal_date']}",
             f"{sub['name']} ({sub['billing_cycle']}, ${sub['amount']:.2f}) renews on {sub['next_renewal_date']}.",
         )
         sub["reminded_for_date"] = sub["next_renewal_date"]
-        sub["last_reminder_on"] = today.isoformat()
+        sub["last_reminder_on"] = local_now(sub, now).date().isoformat()
         # Save after each email, so a failure later in the run can't cause duplicate emails.
         save_subscriptions(subscriptions)
         sent += 1

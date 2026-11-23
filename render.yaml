@@ -22,13 +22,15 @@ services:
       - key: MAX_SUBSCRIPTIONS
         value: "200"
 
-  # Sends renewal reminder emails once a day. Needs DATABASE_URL: the web service's local
-  # JSON file isn't visible to this job. "0 13 * * *" is 13:00 UTC (9am in Lagos, 8am Eastern).
+  # Sends renewal reminder emails every hour. Each email goes out in the hour and time zone its
+  # subscription was set with (new ones default to 9am). Subscriptions saved before that keep
+  # 13:00 UTC, which is 2pm in Lagos and 8am Eastern in winter. Needs DATABASE_URL: the web
+  # service's local JSON file isn't visible to this job.
   - type: cron
     name: subscription-reminders
     runtime: python
     plan: starter
-    schedule: "0 13 * * *"
+    schedule: "0 * * * *"
     buildCommand: pip install -r requirements.txt
     startCommand: python src/reminders.py
     envVars:

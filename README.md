@@ -46,8 +46,10 @@ Each subscription can have a reminder set to a number of days before renewal
 (0 to 365). Leave it blank for none. The reminder is emailed once per renewal,
 and Renew starts a new cycle for the next reminder.
 
-Reminders are sent by `src/reminders.py`, which Render runs once a day as a
-scheduled job (see `render.yaml`). Set these on the reminders job:
+Reminders are sent by `src/reminders.py`, which Render runs every hour as a
+scheduled job (see `render.yaml`). Each subscription has its own send hour and time zone (set on
+the add form or with the Reminder button; new ones default to 9am in your browser's time zone),
+and its email goes out in that hour. Set these on the reminders job:
 
 - `DATABASE_URL`: the same Neon connection string as the web service. Without it
   the job can't see your subscriptions, since the web service's local file isn't shared.

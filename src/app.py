@@ -10,6 +10,7 @@ import os
 import sys
 from datetime import date
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -34,6 +35,8 @@ app.config.update(
 
 PUBLIC_PATHS = ("/login", "/robots.txt")
 MAX_REMINDER_DAYS = 365
+DEFAULT_SEND_HOUR = 9
+DEFAULT_TIME_ZONE = "UTC"
 
 
 def parse_reminder_days(raw):
@@ -60,6 +63,31 @@ def parse_repeat_days(raw):
     if days < 0 or days > MAX_REMINDER_DAYS:
         raise ValueError(f"remind_repeat_days must be between 0 and {MAX_REMINDER_DAYS}")
     return days or None
+
+
+def parse_send_hour(raw):
+    """None or blank means 9am. Otherwise a whole hour from 0 (midnight) to 23."""
+    if raw is None or str(raw).strip() == "":
+        return DEFAULT_SEND_HOUR
+    try:
+        hour = int(raw)
+    except (ValueError, TypeError):
+        raise ValueError("send_hour must be a whole hour from 0 to 23")
+    if hour < 0 or hour > 23:
+        raise ValueError("send_hour must be a whole hour from 0 to 23")
+    return hour
+
+
+def parse_time_zone(raw):
+    """None or blank means UTC. Otherwise an IANA time zone name such as Africa/Lagos or America/New_York."""
+    name = "" if raw is None else str(raw).strip()
+    if name == "":
+        return DEFAULT_TIME_ZONE
+    try:
+        ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise ValueError("time_zone must be a name like Africa/Lagos or America/New_York")
+    return name
 
 
 @app.before_request
@@ -154,6 +182,8 @@ def create_subscription():
     try:
         data["remind_days_before"] = parse_reminder_days(data.get("remind_days_before"))
         data["remind_repeat_days"] = parse_repeat_days(data.get("remind_repeat_days"))
+        data["send_hour"] = parse_send_hour(data.get("send_hour"))
+        data["time_zone"] = parse_time_zone(data.get("time_zone"))
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
     if data["remind_repeat_days"] and data["remind_days_before"] is None:
@@ -200,14 +230,18 @@ def set_reminder(sub_id):
     body = request.get_json() or {}
     try:
         days = parse_reminder_days(body.get("days"))
-        # Keep the current repeat unless the request sends one.
+        # Keep the current repeat, send hour and time zone unless the request sends them.
         repeat = parse_repeat_days(body["repeat_days"]) if "repeat_days" in body else sub.get("remind_repeat_days")
+        send_hour = parse_send_hour(body["send_hour"]) if "send_hour" in body else sub.get("send_hour")
+        time_zone = parse_time_zone(body["time_zone"]) if "time_zone" in body else sub.get("time_zone")
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
 
     days_changed = days != sub.get("remind_days_before")
     sub["remind_days_before"] = days
     sub["remind_repeat_days"] = repeat if days is not None else None  # a repeat needs a first reminder
+    sub["send_hour"] = send_hour
+    sub["time_zone"] = time_zone
     if days_changed:
         sub["reminded_for_date"] = None  # a changed reminder may need to fire again for this renewal
         sub["last_reminder_on"] = None
