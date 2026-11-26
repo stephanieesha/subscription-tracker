@@ -30,6 +30,10 @@
     .cancelled { opacity: 0.45; }
     .error-box { background: #fff; border: 1px solid #000; color: #000; font-weight: 700; padding: 10px; border-radius: 6px; font-size: 13px; margin-bottom: 10px; }
     .actions { display: flex; gap: 8px; }
+    .reminder-form { padding: 14px 0 16px; border-bottom: 1px solid #000; }
+    .reminder-form label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+    .reminder-field { flex: 1; min-width: 180px; }
+    .reminder-field input, .reminder-field select { width: 100%; }
   </style>
 </head>
 <body>
@@ -73,7 +77,7 @@
       </div>
       <div class="form-row">
         <input type="number" id="sendHour" min="0" max="23" value="9" placeholder="Send hour (0 to 23)" />
-        <input type="text" id="timeZone" placeholder="Time zone (e.g. Africa/Lagos)" />
+        <input type="text" id="timeZone" list="timeZoneOptions" placeholder="Time zone (e.g. Africa/Lagos)" />
       </div>
       <button onclick="addSubscription()">Add</button>
     </div>
@@ -85,7 +89,12 @@
 
   </div>
 
+  <datalist id="timeZoneOptions"></datalist>
+
   <script>
+    let subscriptions = [];
+    let editingReminderId = null;
+
     function esc(value) {
       return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
     }
@@ -112,28 +121,35 @@
 
     async function loadSubscriptions() {
       const res = await fetch('/api/subscriptions');
-      const subs = await res.json();
+      subscriptions = await res.json();
+      renderSubscriptions();
+    }
+
+    function renderSubscriptions() {
       const list = document.getElementById('subList');
 
-      if (subs.length === 0) {
+      if (subscriptions.length === 0) {
         list.innerHTML = '<p style="color:#000;font-weight:600;font-size:13px;">No subscriptions yet.</p>';
         return;
       }
 
-      list.innerHTML = subs.map((s) => `
-        <div class="sub-row ${s.status === 'cancelled' ? 'cancelled' : ''}">
-          <div>
-            <span class="sub-name">${esc(s.name)}</span>
-            <span class="sub-meta"> - $${esc(s.amount)}/${esc(s.billing_cycle)} - next: ${esc(s.next_renewal_date)}${s.remind_days_before != null ? ` - email ${esc(s.remind_days_before)} day(s) before${s.remind_repeat_days ? `, then every ${esc(s.remind_repeat_days)} day(s)` : ''}, at ${String(s.send_hour ?? 13).padStart(2, '0')}:00 ${esc(s.time_zone || 'UTC')}` : ''}</span>
-            ${s.status === 'cancelled' ? '<span class="soon-flag">cancelled</span>' : ''}
-          </div>
-          ${s.status === 'active' ? `
-            <div class="actions">
-              <button class="secondary" onclick="setReminder('${s.id}')">Reminder</button>
-              <button class="secondary" onclick="renewSub('${s.id}')">Renew</button>
-              <button class="danger" onclick="cancelSub('${s.id}')">Cancel</button>
+      list.innerHTML = subscriptions.map((s) => `
+        <div class="sub-item">
+          <div class="sub-row ${s.status === 'cancelled' ? 'cancelled' : ''}">
+            <div>
+              <span class="sub-name">${esc(s.name)}</span>
+              <span class="sub-meta"> - $${esc(s.amount)}/${esc(s.billing_cycle)} - next: ${esc(s.next_renewal_date)}${s.remind_days_before != null ? ` - email ${esc(s.remind_days_before)} day(s) before${s.remind_repeat_days ? `, then every ${esc(s.remind_repeat_days)} day(s)` : ''}, at ${String(s.send_hour ?? 13).padStart(2, '0')}:00 ${esc(s.time_zone || 'UTC')}` : ''}</span>
+              ${s.status === 'cancelled' ? '<span class="soon-flag">cancelled</span>' : ''}
             </div>
-          ` : ''}
+            ${s.status === 'active' ? `
+              <div class="actions">
+                <button class="secondary" onclick="openReminderForm('${esc(s.id)}')">Reminder</button>
+                <button class="secondary" onclick="renewSub('${esc(s.id)}')">Renew</button>
+                <button class="danger" onclick="cancelSub('${esc(s.id)}')">Cancel</button>
+              </div>
+            ` : ''}
+          </div>
+          ${s.id === editingReminderId ? reminderForm(s) : ''}
         </div>
       `).join('');
     }
@@ -177,55 +193,121 @@
       loadSubscriptions();
     }
 
-    async function setReminder(id) {
-      const subs = await (await fetch('/api/subscriptions')).json();
-      const current = (Array.isArray(subs) ? subs : []).find((s) => s.id === id) || {};
+    function reminderForm(s) {
+      const id = esc(s.id);
+      const hour = s.send_hour ?? 13;
+      const hours = Array.from({ length: 24 }, (_, h) =>
+        `<option value="${h}"${h === hour ? ' selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('');
+      return `
+        <div class="reminder-form">
+          <div id="reminderError-${id}"></div>
+          <div class="form-row">
+            <div class="reminder-field">
+              <label for="reminderDays-${id}">Email me this many days before renewal</label>
+              <input type="number" id="reminderDays-${id}" value="${esc(s.remind_days_before ?? '')}" min="0" max="365" placeholder="Blank = no reminder" />
+            </div>
+            <div class="reminder-field">
+              <label for="reminderRepeat-${id}">Then repeat every this many days</label>
+              <input type="number" id="reminderRepeat-${id}" value="${esc(s.remind_repeat_days ?? '')}" min="1" max="365" placeholder="Blank = send once" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="reminder-field">
+              <label for="reminderHour-${id}">Send at</label>
+              <select id="reminderHour-${id}">${hours}</select>
+            </div>
+            <div class="reminder-field">
+              <label for="reminderZone-${id}">Time zone</label>
+              <input type="text" id="reminderZone-${id}" value="${esc(s.time_zone || 'UTC')}" list="timeZoneOptions" placeholder="e.g. Africa/Lagos" />
+            </div>
+          </div>
+          <div class="actions">
+            <button onclick="saveReminder('${id}')">Save</button>
+            <button class="secondary" onclick="closeReminderForm()">Close</button>
+            ${s.remind_days_before != null ? `<button class="secondary" onclick="turnOffReminder('${id}')">Turn off reminder</button>` : ''}
+          </div>
+        </div>
+      `;
+    }
 
-      const answer = prompt('Email me how many days before renewal? Leave blank for no reminder.');
-      if (answer === null) return;
+    function openReminderForm(id) {
+      editingReminderId = id;
+      renderSubscriptions();
+      const firstField = document.getElementById(`reminderDays-${id}`);
+      if (firstField && firstField.focus) firstField.focus();
+    }
 
-      const days = answer.trim() === '' ? null : Number(answer);
+    function closeReminderForm() {
+      editingReminderId = null;
+      renderSubscriptions();
+    }
+
+    function showReminderError(id, message) {
+      const box = document.getElementById(`reminderError-${id}`);
+      if (box) box.innerHTML = `<div class="error-box">${esc(message)}</div>`;
+    }
+
+    // Returns { body } for what is in the form, or { error } with a message for the first problem found.
+    function readReminderForm(id) {
+      const daysText = document.getElementById(`reminderDays-${id}`).value.trim();
+      const repeatText = document.getElementById(`reminderRepeat-${id}`).value.trim();
+      const hourText = String(document.getElementById(`reminderHour-${id}`).value).trim();
+      const timeZone = document.getElementById(`reminderZone-${id}`).value.trim();
+
+      const days = daysText === '' ? null : Number(daysText);
       if (days !== null && (!Number.isInteger(days) || days < 0 || days > 365)) {
-        alert('Enter a whole number from 0 to 365, or leave it blank.');
+        return { error: 'Days before renewal must be a whole number from 0 to 365, or blank for no reminder.' };
+      }
+      const repeat = repeatText === '' ? null : Number(repeatText);
+      if (repeat !== null && (!Number.isInteger(repeat) || repeat < 1 || repeat > 365)) {
+        return { error: 'Repeat must be a whole number of days from 1 to 365, or blank to send once.' };
+      }
+      if (days === null && repeat !== null) {
+        return { error: 'Set the days before renewal first, or clear the repeat.' };
+      }
+      const hour = hourText === '' ? NaN : Number(hourText);
+      if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
+        return { error: 'Choose an hour from 00:00 to 23:00.' };
+      }
+      if (timeZone === '') {
+        return { error: 'Enter a time zone, such as Africa/Lagos or America/New_York.' };
+      }
+      return { body: { days, repeat_days: repeat, send_hour: hour, time_zone: timeZone } };
+    }
+
+    async function saveReminder(id) {
+      const { body, error } = readReminderForm(id);
+      if (error) {
+        showReminderError(id, error);
         return;
       }
+      await postReminder(id, body);
+    }
 
-      const body = { days, repeat_days: null };
-      if (days !== null) {
-        const repeatAnswer = prompt('Repeat every how many days until renewal? Leave blank to send once.');
-        if (repeatAnswer === null) return;
-        body.repeat_days = repeatAnswer.trim() === '' ? null : Number(repeatAnswer);
-        if (body.repeat_days !== null && (!Number.isInteger(body.repeat_days) || body.repeat_days < 1 || body.repeat_days > 365)) {
-          alert('Enter a whole number from 1 to 365, or leave it blank.');
-          return;
-        }
+    async function turnOffReminder(id) {
+      await postReminder(id, { days: null, repeat_days: null });
+    }
 
-        const hourAnswer = prompt('Send the email at which hour, from 0 to 23 (your time)?', current.send_hour ?? 13);
-        if (hourAnswer === null) return;
-        if (hourAnswer.trim() !== '') {
-          const hour = Number(hourAnswer);
-          if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
-            alert('Enter a whole hour from 0 to 23, or leave it blank to keep the current hour.');
-            return;
-          }
-          body.send_hour = hour;
-        }
-
-        const zoneAnswer = prompt('Time zone for that hour, such as Africa/Lagos or America/New_York?', current.time_zone || 'UTC');
-        if (zoneAnswer === null) return;
-        if (zoneAnswer.trim() !== '') body.time_zone = zoneAnswer.trim();
+    async function postReminder(id, body) {
+      let res;
+      let data = {};
+      try {
+        res = await fetch(`/api/subscriptions/${id}/reminder`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        data = await res.json().catch(() => ({}));
+      } catch (err) {
+        showReminderError(id, 'Could not reach the server. Try again.');
+        return;
       }
-
-      const res = await fetch(`/api/subscriptions/${id}/reminder`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
       if (!res.ok) {
-        alert((await res.json()).error);
+        showReminderError(id, data.error || 'Could not save the reminder.');
         return;
       }
-      loadSubscriptions();
+      editingReminderId = null;
+      await loadSubscriptions();
     }
 
     async function cancelSub(id) {
@@ -240,6 +322,14 @@
       loadSubscriptions();
     }
 
+    // Suggestions for the time zone boxes. The browser's list leaves out UTC, so it is added here.
+    function fillTimeZoneOptions() {
+      const zones = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : [];
+      document.getElementById('timeZoneOptions').innerHTML = ['UTC', ...zones.filter((zone) => zone !== 'UTC')]
+        .map((zone) => `<option value="${esc(zone)}"></option>`).join('');
+    }
+
+    fillTimeZoneOptions();
     document.getElementById('timeZone').value = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     loadDashboard();
     loadSubscriptions();

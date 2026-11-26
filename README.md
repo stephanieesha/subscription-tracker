@@ -73,6 +73,8 @@ pytest tests/
 ```
 Tests cover the date/money edge cases (month-end rollovers, leap years, year
 boundaries, excluding cancelled subscriptions from totals), the API, and login.
+The tests for the reminder form on the page run the page's script with Node.js, and
+are skipped if Node.js isn't installed.
 
 ## What it does
 
