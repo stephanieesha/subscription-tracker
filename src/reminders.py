@@ -17,6 +17,10 @@ saved before these fields existed keep the old send time, 13:00 UTC.
 Run every hour with:  python src/reminders.py
 (Render runs this as a scheduled job; see render.yaml.)
 
+If an email can't be sent, the run still handles the other subscriptions, prints which ones failed and
+ends with exit status 1, so Render shows the run as failed. A failed subscription is not marked as
+reminded, so the next hourly run tries it again.
+
 Sending uses Gmail over SMTP. Needs GMAIL_ADDRESS and GMAIL_APP_PASSWORD, and optionally
 REMINDER_TO (defaults to GMAIL_ADDRESS).
 """
@@ -36,6 +40,15 @@ from tracker import roll_forward
 
 LEGACY_SEND_HOUR = 13
 LEGACY_TIME_ZONE = "UTC"
+
+
+class RemindersFailed(Exception):
+    """Some reminders could not be sent. The other subscriptions in the run were still handled."""
+
+    def __init__(self, sent: int, failures: list):
+        self.sent = sent
+        self.failures = failures  # (subscription name, what went wrong) pairs
+        super().__init__(f"{len(failures)} reminder(s) could not be sent")
 
 
 def send_settings(sub: dict) -> tuple:
@@ -83,8 +96,10 @@ def repeat_due(sub: dict, today: date) -> bool:
 
 
 def send_email(subject: str, body: str) -> None:
-    address = os.environ["GMAIL_ADDRESS"]
-    password = os.environ["GMAIL_APP_PASSWORD"]
+    address = os.environ.get("GMAIL_ADDRESS")
+    password = os.environ.get("GMAIL_APP_PASSWORD")
+    if not address or not password:
+        raise RuntimeError("GMAIL_ADDRESS and GMAIL_APP_PASSWORD must be set on the reminders job")
 
     message = EmailMessage()
     message["Subject"] = subject
@@ -97,26 +112,50 @@ def send_email(subject: str, body: str) -> None:
         smtp.send_message(message)
 
 
-def run_reminders(now: datetime = None, send=send_email) -> int:
+def run_reminders(now: datetime = None, send=None) -> int:
+    """Sends every reminder that is due and returns how many went out. If some could not be sent, the
+    others are still handled and RemindersFailed is raised at the end."""
     now = now or datetime.now(timezone.utc)
+    if send is None:
+        send = send_email
     subscriptions = load_subscriptions()
     # Each renewal date is judged by the date in its own subscription's time zone.
     changes = [roll_forward(sub, local_now(sub, now).date()) for sub in subscriptions]
     if any(changes):
         save_subscriptions(subscriptions)  # store renewal dates that have moved forward
     sent = 0
+    failures = []
     for sub in reminders_due(subscriptions, now):
-        send(
-            f"Reminder: {sub['name']} renews on {sub['next_renewal_date']}",
-            f"{sub['name']} ({sub['billing_cycle']}, ${sub['amount']:.2f}) renews on {sub['next_renewal_date']}.",
-        )
+        try:
+            send(
+                f"Reminder: {sub['name']} renews on {sub['next_renewal_date']}",
+                f"{sub['name']} ({sub['billing_cycle']}, ${sub['amount']:.2f}) renews on {sub['next_renewal_date']}.",
+            )
+        except Exception as error:
+            failures.append((sub["name"], f"{type(error).__name__}: {error}"))
+            continue  # not marked as reminded, so the next hourly run tries again
         sub["reminded_for_date"] = sub["next_renewal_date"]
         sub["last_reminder_on"] = local_now(sub, now).date().isoformat()
         # Save after each email, so a failure later in the run can't cause duplicate emails.
         save_subscriptions(subscriptions)
         sent += 1
+    if failures:
+        raise RemindersFailed(sent, failures)
     return sent
 
 
+def main(now: datetime = None, send=None) -> int:
+    """The hourly job. Returns its exit status: 0 when every due reminder went out, 1 when any failed."""
+    try:
+        sent = run_reminders(now=now, send=send)
+    except RemindersFailed as error:
+        print(f"Sent {error.sent} reminder(s), {len(error.failures)} failed:")
+        for name, reason in error.failures:
+            print(f"  {name}: {reason}")
+        return 1
+    print(f"Sent {sent} reminder(s)")
+    return 0
+
+
 if __name__ == "__main__":
-    print(f"Sent {run_reminders()} reminder(s)")
+    sys.exit(main())

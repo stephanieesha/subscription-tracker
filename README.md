@@ -59,6 +59,10 @@ and its email goes out in that hour. Set these on the reminders job:
   Don't use your normal Gmail password.
 - `REMINDER_TO` (optional): where reminders go. Defaults to `GMAIL_ADDRESS`.
 
+If an email can't be sent, the job still sends the rest, lists the ones that failed in its
+log and ends with an error, so Render shows that run as failed. The next hourly run tries
+the failed ones again.
+
 To test locally without sending mail, call `run_reminders(send=print)` from `src/reminders.py`
 or run the tests.
 
