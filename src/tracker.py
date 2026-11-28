@@ -119,7 +119,16 @@ def roll_forward_all(subscriptions: list, today: date = None) -> bool:
     return any(changes)
 
 
-def cancel_subscription(sub: dict) -> dict:
+def cancel_subscription(sub: dict, today: date = None) -> dict:
+    """Marks a subscription cancelled as of `today` (the real date if none is given) and records that date.
+    Cancelling again keeps the first date. A subscription is never cancelled before it started, so a start
+    date after `today`, which a change of time zone can cause, is used instead."""
+    if sub.get("status") == "cancelled":
+        return sub
+    today = today or date.today()
+    start = sub.get("start_date")
+    if start and date.fromisoformat(start) > today:
+        today = date.fromisoformat(start)
     sub["status"] = "cancelled"
-    sub["cancelled_date"] = date.today().isoformat()
+    sub["cancelled_date"] = today.isoformat()
     return sub

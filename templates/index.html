@@ -35,9 +35,9 @@
       .actions { flex-wrap: wrap; }
     }
     .reminder-form { padding: 14px 0 16px; border-bottom: 1px solid #000; }
-    .reminder-field label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 4px; }
-    .reminder-field { flex: 1; min-width: 180px; }
-    .reminder-field input, .reminder-field select { width: 100%; }
+    .form-field label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+    .form-field { flex: 1; min-width: 180px; }
+    .form-field input, .form-field select { width: 100%; }
   </style>
 </head>
 <body>
@@ -76,6 +76,12 @@
         <input type="text" id="category" placeholder="Category (optional)" />
       </div>
       <div class="form-row">
+        <div class="form-field">
+          <label for="startDate">Started on (blank = today)</label>
+          <input type="date" id="startDate" />
+        </div>
+      </div>
+      <div class="form-row">
         <input type="number" id="remindDays" min="0" max="365" placeholder="Email me this many days before renewal (blank = no reminder)" />
         <input type="number" id="remindRepeat" min="1" max="365" placeholder="Then repeat every this many days (blank = send once)" />
       </div>
@@ -84,7 +90,7 @@
         <input type="text" id="timeZone" list="timeZoneOptions" placeholder="Time zone (e.g. Africa/Lagos)" />
       </div>
       <div class="form-row">
-        <div class="reminder-field">
+        <div class="form-field">
           <label for="remindUntil">Stop reminders after (optional)</label>
           <input type="date" id="remindUntil" />
         </div>
@@ -179,6 +185,7 @@
         billing_cycle: document.getElementById('billingCycle').value,
         next_renewal_date: document.getElementById('nextRenewal').value,
         category: document.getElementById('category').value.trim(),
+        start_date: document.getElementById('startDate').value,
         remind_days_before: document.getElementById('remindDays').value,
         remind_repeat_days: document.getElementById('remindRepeat').value,
         send_hour: document.getElementById('sendHour').value,
@@ -202,6 +209,7 @@
       document.getElementById('amount').value = '';
       document.getElementById('nextRenewal').value = '';
       document.getElementById('category').value = '';
+      document.getElementById('startDate').value = '';
       document.getElementById('remindDays').value = '';
       document.getElementById('remindRepeat').value = '';
       document.getElementById('remindUntil').value = '';
@@ -219,27 +227,27 @@
         <div class="reminder-form">
           <div id="reminderError-${id}"></div>
           <div class="form-row">
-            <div class="reminder-field">
+            <div class="form-field">
               <label for="reminderDays-${id}">Email me this many days before renewal</label>
               <input type="number" id="reminderDays-${id}" value="${esc(s.remind_days_before ?? '')}" min="0" max="365" placeholder="Blank = no reminder" />
             </div>
-            <div class="reminder-field">
+            <div class="form-field">
               <label for="reminderRepeat-${id}">Then repeat every this many days</label>
               <input type="number" id="reminderRepeat-${id}" value="${esc(s.remind_repeat_days ?? '')}" min="1" max="365" placeholder="Blank = send once" />
             </div>
           </div>
           <div class="form-row">
-            <div class="reminder-field">
+            <div class="form-field">
               <label for="reminderHour-${id}">Send at</label>
               <select id="reminderHour-${id}">${hours}</select>
             </div>
-            <div class="reminder-field">
+            <div class="form-field">
               <label for="reminderZone-${id}">Time zone</label>
               <input type="text" id="reminderZone-${id}" value="${esc(s.time_zone || 'UTC')}" list="timeZoneOptions" placeholder="e.g. Africa/Lagos" />
             </div>
           </div>
           <div class="form-row">
-            <div class="reminder-field">
+            <div class="form-field">
               <label for="reminderUntil-${id}">Stop reminders after (optional)</label>
               <input type="date" id="reminderUntil-${id}" value="${esc(s.remind_until ?? '')}" />
             </div>

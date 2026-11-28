@@ -79,8 +79,8 @@ def parse_send_hour(raw):
     return hour
 
 
-def parse_remind_until(raw):
-    """None or blank means no end date. Otherwise the last day reminders may be sent, as YYYY-MM-DD."""
+def parse_date_text(raw, field):
+    """None or blank means no date. Otherwise a date written YYYY-MM-DD, returned in that form."""
     text = "" if raw is None else str(raw).strip()
     if text == "":
         return None
@@ -89,7 +89,17 @@ def parse_remind_until(raw):
             return date.fromisoformat(text).isoformat()
         except ValueError:
             pass
-    raise ValueError("remind_until must be a date in YYYY-MM-DD format")
+    raise ValueError(f"{field} must be a date in YYYY-MM-DD format")
+
+
+def parse_remind_until(raw):
+    """None or blank means no end date. Otherwise the last day reminders may be sent, as YYYY-MM-DD."""
+    return parse_date_text(raw, "remind_until")
+
+
+def parse_start_date(raw):
+    """None or blank means the subscription starts today. Otherwise the day it started, as YYYY-MM-DD."""
+    return parse_date_text(raw, "start_date")
 
 
 def today_in(time_zone):
@@ -216,6 +226,7 @@ def create_subscription():
         data["send_hour"] = parse_send_hour(data.get("send_hour"))
         data["time_zone"] = parse_time_zone(data.get("time_zone"))
         data["remind_until"] = parse_remind_until(data.get("remind_until"))
+        data["start_date"] = parse_start_date(data.get("start_date"))
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
     if data["remind_repeat_days"] and data["remind_days_before"] is None:
@@ -223,6 +234,12 @@ def create_subscription():
     problem = end_date_problem(data["remind_until"], data["remind_days_before"], data["time_zone"])
     if problem:
         return jsonify({"error": problem}), 400
+
+    today = today_in(data["time_zone"]).isoformat()  # the date where the subscription's owner is
+    if data["start_date"] is None:
+        data["start_date"] = today
+    elif data["start_date"] > today:
+        return jsonify({"error": "start_date must be today or an earlier date"}), 400
 
     if max_subscriptions() and count_subscriptions() >= max_subscriptions():
         return jsonify({"error": f"The shared list is full ({max_subscriptions()} subscriptions) - cancel or ask the owner to clear it"}), 400
@@ -238,7 +255,7 @@ def cancel(sub_id):
     if sub is None:
         return jsonify({"error": "Subscription not found"}), 404
 
-    cancel_subscription(sub)
+    cancel_subscription(sub, today_in(sub.get("time_zone")))
     save_subscriptions(subscriptions)
     return jsonify(sub)
 

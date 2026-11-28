@@ -193,5 +193,5 @@ def test_the_add_form_has_a_labelled_date_box_for_the_end_date():
 def test_labels_are_styled_wherever_a_reminder_field_is_used():
     html = INDEX_PAGE.read_text()
 
-    assert re.search(r"\.reminder-field label \{[^}]*font-weight: 700", html)
+    assert re.search(r"\.form-field label \{[^}]*font-weight: 700", html)
     assert ".reminder-form label" not in html
