@@ -14,6 +14,9 @@ A subscription's reminders can be paused (reminders_paused) and resumed. While t
 sent for it and nothing is marked as reminded, so once they are resumed the next hourly run sends whatever
 is due.
 
+A subscription can also have remind_until, the last day it may be emailed, as a date in its own time zone. Its
+emails still go out on that day; from the next day none do, for this renewal or any later one.
+
 Each subscription also has send_hour (0 to 23) and time_zone (an IANA name such as Africa/Lagos). Its
 emails go out on the first run at or after that hour on the subscription's own local date. Subscriptions
 saved before these fields existed keep the old send time, 13:00 UTC.
@@ -76,6 +79,8 @@ def reminders_due(subscriptions: list, now: datetime = None) -> list:
             continue
         local = local_now(sub, now)
         today = local.date()
+        if sub.get("remind_until") and today > date.fromisoformat(sub["remind_until"]):
+            continue  # the end date has passed
         renewal = date.fromisoformat(sub["next_renewal_date"])
         in_window = renewal - timedelta(days=days) <= today <= renewal
         if not in_window:

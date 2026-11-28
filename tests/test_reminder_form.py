@@ -290,7 +290,7 @@ def test_saving_sends_the_settings_and_closes_the_form():
 
     assert page["requests"] == [{
         "url": "/api/subscriptions/abc/reminder", "method": "POST",
-        "body": {"days": 14, "repeat_days": 3, "send_hour": 8, "time_zone": "Africa/Lagos"},
+        "body": {"days": 14, "repeat_days": 3, "send_hour": 8, "time_zone": "Africa/Lagos", "until": None},
     }]
     assert page["contentTypes"] == ["application/json"]
     assert "reminderDays-abc" not in page["subList"]
@@ -311,14 +311,14 @@ def test_the_list_is_reloaded_from_the_server_after_saving():
 def test_blank_days_and_repeat_are_sent_as_no_reminder():
     page = run_page([subscription()], OPEN + fill(days="", repeat="", hour="9", zone="UTC") + SAVE)
 
-    assert page["requests"][0]["body"] == {"days": None, "repeat_days": None, "send_hour": 9, "time_zone": "UTC"}
+    assert page["requests"][0]["body"] == {"days": None, "repeat_days": None, "send_hour": 9, "time_zone": "UTC", "until": None}
 
 
 @needs_node
 def test_days_that_are_only_spaces_count_as_blank():
     page = run_page([subscription()], OPEN + fill(days="   ", repeat="  ", hour="9", zone="UTC") + SAVE)
 
-    assert page["requests"][0]["body"] == {"days": None, "repeat_days": None, "send_hour": 9, "time_zone": "UTC"}
+    assert page["requests"][0]["body"] == {"days": None, "repeat_days": None, "send_hour": 9, "time_zone": "UTC", "until": None}
 
 
 @needs_node

@@ -17,7 +17,7 @@ DATA_PATH = Path(__file__).parent.parent / "data" / "subscriptions.json"
 COLUMNS = (
     "id", "name", "amount", "billing_cycle", "next_renewal_date", "category", "status",
     "remind_days_before", "remind_repeat_days", "reminded_for_date", "last_reminder_on",
-    "send_hour", "time_zone", "reminders_paused",
+    "send_hour", "time_zone", "reminders_paused", "remind_until",
 )
 
 CREATE_TABLE = """
@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     send_hour INTEGER,
     time_zone TEXT,
     reminders_paused BOOLEAN NOT NULL DEFAULT FALSE,
+    remind_until TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 )
 """
@@ -49,6 +50,7 @@ MIGRATIONS = (
     "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS send_hour INTEGER",
     "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS time_zone TEXT",
     "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS reminders_paused BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS remind_until TEXT",
 )
 
 
@@ -96,17 +98,18 @@ def save_subscriptions(subscriptions: list) -> None:
                     """
                     INSERT INTO subscriptions (id, name, amount, billing_cycle, next_renewal_date, category, status,
                                                remind_days_before, remind_repeat_days, reminded_for_date, last_reminder_on,
-                                               send_hour, time_zone, reminders_paused)
+                                               send_hour, time_zone, reminders_paused, remind_until)
                     VALUES (%(id)s, %(name)s, %(amount)s, %(billing_cycle)s, %(next_renewal_date)s, %(category)s, %(status)s,
                             %(remind_days_before)s, %(remind_repeat_days)s, %(reminded_for_date)s, %(last_reminder_on)s,
-                            %(send_hour)s, %(time_zone)s, %(reminders_paused)s)
+                            %(send_hour)s, %(time_zone)s, %(reminders_paused)s, %(remind_until)s)
                     ON CONFLICT (id) DO UPDATE SET
                         name = EXCLUDED.name, amount = EXCLUDED.amount, billing_cycle = EXCLUDED.billing_cycle,
                         next_renewal_date = EXCLUDED.next_renewal_date, category = EXCLUDED.category,
                         status = EXCLUDED.status, remind_days_before = EXCLUDED.remind_days_before,
                         remind_repeat_days = EXCLUDED.remind_repeat_days, reminded_for_date = EXCLUDED.reminded_for_date,
                         last_reminder_on = EXCLUDED.last_reminder_on, send_hour = EXCLUDED.send_hour,
-                        time_zone = EXCLUDED.time_zone, reminders_paused = EXCLUDED.reminders_paused
+                        time_zone = EXCLUDED.time_zone, reminders_paused = EXCLUDED.reminders_paused,
+                        remind_until = EXCLUDED.remind_until
                     """,
                     _row(sub),
                 )
@@ -132,6 +135,7 @@ def add_subscription(data: dict) -> dict:
         "send_hour": data.get("send_hour"),
         "time_zone": data.get("time_zone"),
         "reminders_paused": False,
+        "remind_until": data.get("remind_until"),
     }
     if using_database():
         save_subscriptions([new_sub])  # inserts just this row, without touching the others

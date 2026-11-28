@@ -7,8 +7,9 @@ Then open: http://localhost:5030
 
 import math
 import os
+import re
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -76,6 +77,36 @@ def parse_send_hour(raw):
     if hour < 0 or hour > 23:
         raise ValueError("send_hour must be a whole hour from 0 to 23")
     return hour
+
+
+def parse_remind_until(raw):
+    """None or blank means no end date. Otherwise the last day reminders may be sent, as YYYY-MM-DD."""
+    text = "" if raw is None else str(raw).strip()
+    if text == "":
+        return None
+    if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", text):
+        try:
+            return date.fromisoformat(text).isoformat()
+        except ValueError:
+            pass
+    raise ValueError("remind_until must be a date in YYYY-MM-DD format")
+
+
+def today_in(time_zone):
+    """Today's date in a time zone, which is the date the reminder job sees for a subscription set to that zone."""
+    return datetime.now(ZoneInfo(time_zone or DEFAULT_TIME_ZONE)).date()
+
+
+def end_date_problem(until, days, time_zone, saved=None):
+    """What is wrong with an end date for reminders, or None. A date that is already saved may be in the past,
+    so changing another setting never fails because of it."""
+    if until is None:
+        return None
+    if days is None:
+        return "Set a reminder before choosing an end date"
+    if until != saved and until < today_in(time_zone).isoformat():
+        return "remind_until must be today or a later date"
+    return None
 
 
 def parse_time_zone(raw):
@@ -184,10 +215,14 @@ def create_subscription():
         data["remind_repeat_days"] = parse_repeat_days(data.get("remind_repeat_days"))
         data["send_hour"] = parse_send_hour(data.get("send_hour"))
         data["time_zone"] = parse_time_zone(data.get("time_zone"))
+        data["remind_until"] = parse_remind_until(data.get("remind_until"))
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
     if data["remind_repeat_days"] and data["remind_days_before"] is None:
         return jsonify({"error": "Set a reminder before choosing a repeat"}), 400
+    problem = end_date_problem(data["remind_until"], data["remind_days_before"], data["time_zone"])
+    if problem:
+        return jsonify({"error": problem}), 400
 
     if max_subscriptions() and count_subscriptions() >= max_subscriptions():
         return jsonify({"error": f"The shared list is full ({max_subscriptions()} subscriptions) - cancel or ask the owner to clear it"}), 400
@@ -230,16 +265,22 @@ def set_reminder(sub_id):
     body = request.get_json() or {}
     try:
         days = parse_reminder_days(body.get("days"))
-        # Keep the current repeat, send hour and time zone unless the request sends them.
+        # Keep the current repeat, end date, send hour and time zone unless the request sends them.
         repeat = parse_repeat_days(body["repeat_days"]) if "repeat_days" in body else sub.get("remind_repeat_days")
+        until = parse_remind_until(body["until"]) if "until" in body else sub.get("remind_until")
         send_hour = parse_send_hour(body["send_hour"]) if "send_hour" in body else sub.get("send_hour")
         time_zone = parse_time_zone(body["time_zone"]) if "time_zone" in body else sub.get("time_zone")
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
+    if "until" in body:
+        problem = end_date_problem(until, days, time_zone, sub.get("remind_until"))
+        if problem:
+            return jsonify({"error": problem}), 400
 
     days_changed = days != sub.get("remind_days_before")
     sub["remind_days_before"] = days
     sub["remind_repeat_days"] = repeat if days is not None else None  # a repeat needs a first reminder
+    sub["remind_until"] = until if days is not None else None  # and so does an end date
     if days is None:
         sub["reminders_paused"] = False  # with no reminder there is nothing left to pause
     sub["send_hour"] = send_hour
