@@ -142,6 +142,25 @@
       renderSubscriptions();
     }
 
+    // The reminder settings shown after the next renewal date.
+    function reminderSummary(s) {
+      if (s.remind_days_before == null) return '';
+      return ` - email ${esc(s.remind_days_before)} day(s) before${s.remind_repeat_days ? `, then every ${esc(s.remind_repeat_days)} day(s)` : ''}, at ${String(s.send_hour ?? 13).padStart(2, '0')}:00 ${esc(s.time_zone || 'UTC')}${s.remind_until ? `, stops after ${esc(s.remind_until)}` : ''}`;
+    }
+
+    // What a cancelled subscription says in the history: when it started and when it was cancelled, if known.
+    function historySummary(s) {
+      return `${s.start_date ? ` - started ${esc(s.start_date)}` : ''}${s.cancelled_date ? ` - cancelled ${esc(s.cancelled_date)}` : ''}`;
+    }
+
+    // Active subscriptions first, in the order they were added. Then the cancelled ones, which are the history,
+    // with the most recently cancelled first and the ones with no cancellation date last.
+    function inListOrder(items) {
+      const history = items.filter((s) => s.status === 'cancelled')
+        .sort((a, b) => (b.cancelled_date || '').localeCompare(a.cancelled_date || ''));
+      return [...items.filter((s) => s.status !== 'cancelled'), ...history];
+    }
+
     function renderSubscriptions() {
       const list = document.getElementById('subList');
 
@@ -150,12 +169,12 @@
         return;
       }
 
-      list.innerHTML = subscriptions.map((s) => `
+      list.innerHTML = inListOrder(subscriptions).map((s) => `
         <div class="sub-item">
           <div class="sub-row ${s.status === 'cancelled' ? 'cancelled' : ''}">
             <div>
               <span class="sub-name">${esc(s.name)}</span>
-              <span class="sub-meta"> - $${esc(s.amount)}/${esc(s.billing_cycle)} - next: ${esc(s.next_renewal_date)}${s.remind_days_before != null ? ` - email ${esc(s.remind_days_before)} day(s) before${s.remind_repeat_days ? `, then every ${esc(s.remind_repeat_days)} day(s)` : ''}, at ${String(s.send_hour ?? 13).padStart(2, '0')}:00 ${esc(s.time_zone || 'UTC')}${s.remind_until ? `, stops after ${esc(s.remind_until)}` : ''}` : ''}</span>
+              <span class="sub-meta"> - $${esc(s.amount)}/${esc(s.billing_cycle)}${s.status === 'cancelled' ? historySummary(s) : ` - next: ${esc(s.next_renewal_date)}${reminderSummary(s)}`}</span>
               ${s.status === 'cancelled' ? '<span class="soon-flag">cancelled</span>' : ''}
               ${s.status === 'active' && s.reminders_paused ? '<span class="soon-flag">reminders paused</span>' : ''}
             </div>
@@ -348,9 +367,9 @@
       await loadSubscriptions();
     }
 
-    // Pausing or resuming a subscription's reminders. A problem is shown above the list, since the buttons
-    // are in the rows.
-    async function changeReminders(id, action) {
+    // Sends what one of the row buttons asks for (pause, resume or cancel). A problem is shown above the list,
+    // since the buttons are in the rows. Returns true when the server accepted it.
+    async function postRowAction(id, action, failure) {
       const box = document.getElementById('listError');
       box.innerHTML = '';
       let res;
@@ -360,13 +379,19 @@
         data = await res.json().catch(() => ({}));
       } catch (err) {
         box.innerHTML = '<div class="error-box">Could not reach the server. Try again.</div>';
-        return;
+        return false;
       }
       if (!res.ok) {
-        box.innerHTML = `<div class="error-box">${esc(data.error || 'Could not change the reminders.')}</div>`;
-        return;
+        box.innerHTML = `<div class="error-box">${esc(data.error || failure)}</div>`;
+        return false;
       }
-      await loadSubscriptions();
+      return true;
+    }
+
+    async function changeReminders(id, action) {
+      if (await postRowAction(id, action, 'Could not change the reminders.')) {
+        await loadSubscriptions();
+      }
     }
 
     function pauseReminders(id) {
@@ -378,9 +403,10 @@
     }
 
     async function cancelSub(id) {
-      await fetch(`/api/subscriptions/${id}/cancel`, { method: 'POST' });
-      loadDashboard();
-      loadSubscriptions();
+      if (await postRowAction(id, 'cancel', 'Could not cancel the subscription.')) {
+        await loadDashboard();
+        await loadSubscriptions();
+      }
     }
 
     async function renewSub(id) {
