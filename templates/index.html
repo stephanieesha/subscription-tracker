@@ -26,10 +26,14 @@
     .sub-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #000; font-size: 13px; }
     .sub-name { font-weight: 700; color: #000; }
     .sub-meta { color: #000; font-weight: 600; font-size: 12px; }
-    .soon-flag { background: #fff; border: 1px solid #000; color: #000; padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 700; margin-left: 8px; }
+    .soon-flag { background: #fff; border: 1px solid #000; color: #000; padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 700; margin-left: 8px; white-space: nowrap; }
     .cancelled { opacity: 0.45; }
     .error-box { background: #fff; border: 1px solid #000; color: #000; font-weight: 700; padding: 10px; border-radius: 6px; font-size: 13px; margin-bottom: 10px; }
     .actions { display: flex; gap: 8px; }
+    @media (max-width: 520px) {
+      .sub-row { flex-wrap: wrap; gap: 8px; }
+      .actions { flex-wrap: wrap; }
+    }
     .reminder-form { padding: 14px 0 16px; border-bottom: 1px solid #000; }
     .reminder-form label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 4px; }
     .reminder-field { flex: 1; min-width: 180px; }
@@ -84,6 +88,7 @@
 
     <div class="card">
       <h2>All subscriptions</h2>
+      <div id="listError"></div>
       <div id="subList"></div>
     </div>
 
@@ -140,10 +145,14 @@
               <span class="sub-name">${esc(s.name)}</span>
               <span class="sub-meta"> - $${esc(s.amount)}/${esc(s.billing_cycle)} - next: ${esc(s.next_renewal_date)}${s.remind_days_before != null ? ` - email ${esc(s.remind_days_before)} day(s) before${s.remind_repeat_days ? `, then every ${esc(s.remind_repeat_days)} day(s)` : ''}, at ${String(s.send_hour ?? 13).padStart(2, '0')}:00 ${esc(s.time_zone || 'UTC')}` : ''}</span>
               ${s.status === 'cancelled' ? '<span class="soon-flag">cancelled</span>' : ''}
+              ${s.status === 'active' && s.reminders_paused ? '<span class="soon-flag">reminders paused</span>' : ''}
             </div>
             ${s.status === 'active' ? `
               <div class="actions">
                 <button class="secondary" onclick="openReminderForm('${esc(s.id)}')">Reminder</button>
+                ${s.remind_days_before != null ? (s.reminders_paused
+                  ? `<button class="secondary" onclick="resumeReminders('${esc(s.id)}')">Resume reminders</button>`
+                  : `<button class="secondary" onclick="pauseReminders('${esc(s.id)}')">Pause reminders</button>`) : ''}
                 <button class="secondary" onclick="renewSub('${esc(s.id)}')">Renew</button>
                 <button class="danger" onclick="cancelSub('${esc(s.id)}')">Cancel</button>
               </div>
@@ -308,6 +317,35 @@
       }
       editingReminderId = null;
       await loadSubscriptions();
+    }
+
+    // Pausing or resuming a subscription's reminders. A problem is shown above the list, since the buttons
+    // are in the rows.
+    async function changeReminders(id, action) {
+      const box = document.getElementById('listError');
+      box.innerHTML = '';
+      let res;
+      let data = {};
+      try {
+        res = await fetch(`/api/subscriptions/${encodeURIComponent(id)}/${action}`, { method: 'POST' });
+        data = await res.json().catch(() => ({}));
+      } catch (err) {
+        box.innerHTML = '<div class="error-box">Could not reach the server. Try again.</div>';
+        return;
+      }
+      if (!res.ok) {
+        box.innerHTML = `<div class="error-box">${esc(data.error || 'Could not change the reminders.')}</div>`;
+        return;
+      }
+      await loadSubscriptions();
+    }
+
+    function pauseReminders(id) {
+      return changeReminders(id, 'pause');
+    }
+
+    function resumeReminders(id) {
+      return changeReminders(id, 'resume');
     }
 
     async function cancelSub(id) {

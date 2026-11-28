@@ -62,8 +62,9 @@ const page = (code) => vm.runInContext(code, sandbox);
 
 setTimeout(async () => {
   let error = null;
+  let result = null;
   try {
-    await new Function('page', 'element', 'return (async () => {' + settings.steps + '\n})();')(page, element);
+    result = await new Function('page', 'element', 'return (async () => {' + settings.steps + '\n})();')(page, element);
   } catch (e) {
     error = String(e && e.message ? e.message : e);
   }
@@ -73,7 +74,7 @@ setTimeout(async () => {
       if (id.startsWith('reminderError-')) errors[id] = elements[id].innerHTML;
     }
     console.log(JSON.stringify({
-      error, subList: element('subList').innerHTML, errors, requests, contentTypes, dialogs, focused,
+      error, result, subList: element('subList').innerHTML, errors, requests, contentTypes, dialogs, focused,
       zoneOptions: element('timeZoneOptions').innerHTML,
     }));
   }, 20);

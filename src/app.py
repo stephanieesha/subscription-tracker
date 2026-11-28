@@ -240,6 +240,8 @@ def set_reminder(sub_id):
     days_changed = days != sub.get("remind_days_before")
     sub["remind_days_before"] = days
     sub["remind_repeat_days"] = repeat if days is not None else None  # a repeat needs a first reminder
+    if days is None:
+        sub["reminders_paused"] = False  # with no reminder there is nothing left to pause
     sub["send_hour"] = send_hour
     sub["time_zone"] = time_zone
     if days_changed:
@@ -247,6 +249,29 @@ def set_reminder(sub_id):
         sub["last_reminder_on"] = None
     save_subscriptions(subscriptions)
     return jsonify(sub)
+
+
+def set_reminders_paused(sub_id, paused):
+    subscriptions = load_current_subscriptions()
+    sub = find_subscription(subscriptions, sub_id)
+    if sub is None:
+        return jsonify({"error": "Subscription not found"}), 404
+    if paused and sub.get("remind_days_before") is None:
+        return jsonify({"error": "Set a reminder before pausing it"}), 400
+
+    sub["reminders_paused"] = paused
+    save_subscriptions(subscriptions)
+    return jsonify(sub)
+
+
+@app.route("/api/subscriptions/<sub_id>/pause", methods=["POST"])
+def pause_reminders(sub_id):
+    return set_reminders_paused(sub_id, True)
+
+
+@app.route("/api/subscriptions/<sub_id>/resume", methods=["POST"])
+def resume_reminders(sub_id):
+    return set_reminders_paused(sub_id, False)
 
 
 @app.route("/api/dashboard")
